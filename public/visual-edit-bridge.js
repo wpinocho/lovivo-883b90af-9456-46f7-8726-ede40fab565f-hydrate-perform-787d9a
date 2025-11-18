@@ -804,6 +804,7 @@
 
   /**
    * Get detailed information about an element
+   * Includes all CSS properties needed for visual editing
    */
   function getElementInfo(element) {
     if (!element) return null;
@@ -817,13 +818,49 @@
       semanticClasses: getSemanticClasses(element),
       textContent: element.textContent?.substring(0, 100) || '',
       computedStyles: {
-        color: computedStyles.color,
-        backgroundColor: computedStyles.backgroundColor,
-        fontSize: computedStyles.fontSize,
-        padding: computedStyles.padding,
-        margin: computedStyles.margin,
+        // ===== BASIC DIMENSIONS =====
         width: computedStyles.width,
         height: computedStyles.height,
+        
+        // ===== TYPOGRAPHY =====
+        color: computedStyles.color,
+        fontSize: computedStyles.fontSize,
+        fontFamily: computedStyles.fontFamily,
+        fontWeight: computedStyles.fontWeight,
+        fontStyle: computedStyles.fontStyle,
+        textAlign: computedStyles.textAlign,
+        textDecoration: computedStyles.textDecoration,
+        lineHeight: computedStyles.lineHeight,
+        letterSpacing: computedStyles.letterSpacing,
+        
+        // ===== SPACING (Shorthand) =====
+        padding: computedStyles.padding,
+        margin: computedStyles.margin,
+        
+        // ===== SPACING (Individual values) =====
+        paddingTop: computedStyles.paddingTop,
+        paddingRight: computedStyles.paddingRight,
+        paddingBottom: computedStyles.paddingBottom,
+        paddingLeft: computedStyles.paddingLeft,
+        marginTop: computedStyles.marginTop,
+        marginRight: computedStyles.marginRight,
+        marginBottom: computedStyles.marginBottom,
+        marginLeft: computedStyles.marginLeft,
+        
+        // ===== BACKGROUND =====
+        backgroundColor: computedStyles.backgroundColor,
+        opacity: computedStyles.opacity,
+        
+        // ===== BORDER =====
+        borderWidth: computedStyles.borderWidth,
+        borderColor: computedStyles.borderColor,
+        borderStyle: computedStyles.borderStyle,
+        borderRadius: computedStyles.borderRadius,
+        // Individual border widths (useful for complex borders)
+        borderTopWidth: computedStyles.borderTopWidth,
+        borderRightWidth: computedStyles.borderRightWidth,
+        borderBottomWidth: computedStyles.borderBottomWidth,
+        borderLeftWidth: computedStyles.borderLeftWidth,
       },
       boundingRect: {
         top: rect.top,
