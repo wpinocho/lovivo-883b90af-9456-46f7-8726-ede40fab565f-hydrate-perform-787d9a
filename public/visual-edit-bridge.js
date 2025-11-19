@@ -25,6 +25,8 @@
     HIGHLIGHT: 'VISUAL_EDIT_HIGHLIGHT',
     CLEAR_HIGHLIGHT: 'VISUAL_EDIT_CLEAR_HIGHLIGHT',
     REQUEST_INFO: 'VISUAL_EDIT_REQUEST_INFO',
+    APPLY_PREVIEW: 'VISUAL_EDIT_APPLY_PREVIEW',      // New: Apply preview styles
+    REVERT_PREVIEW: 'VISUAL_EDIT_REVERT_PREVIEW',    // New: Revert to original
     
     // Iframe → Parent
     ELEMENT_HOVERED: 'ELEMENT_HOVERED',
@@ -32,7 +34,9 @@
     ELEMENT_INFO: 'ELEMENT_INFO',
     NO_ELEMENT: 'NO_ELEMENT_DETECTED',
     ERROR: 'VISUAL_EDIT_ERROR',
-    READY: 'VISUAL_EDIT_READY'
+    READY: 'VISUAL_EDIT_READY',
+    PREVIEW_APPLIED: 'VISUAL_EDIT_PREVIEW_APPLIED',  // New: Preview applied confirmation
+    PREVIEW_REVERTED: 'VISUAL_EDIT_PREVIEW_REVERTED'// New: Preview reverted confirmation
   };
 
   // ===== GLOBAL STATE =====
@@ -49,6 +53,9 @@
     lastHoveredSelector: null,
     lastDetectionTime: 0,
     pendingDetection: null,
+    
+    // Preview tracking
+    previewElements: new Map(), // selector -> { element, originalStyles }
     
     // Configuration
     config: {
@@ -871,6 +878,186 @@
     };
   }
 
+  // ===== LIVE PREVIEW SYSTEM =====
+
+  /**
+   * Apply preview styles to an element in real-time
+   * Styles are applied as inline styles and can be reverted
+   * 
+   * @param {string} selector - CSS selector of the element
+   * @param {Object} styles - Object with CSS properties to apply
+   * @returns {boolean} - Success status
+   */
+  function applyPreviewStyles(selector, styles) {
+    try {
+      // Find the element
+      const element = document.querySelector(selector);
+      
+      if (!element) {
+        console.warn('[Lovivo Visual Edit] Element not found for preview:', selector);
+        return false;
+      }
+
+      // Save original styles if this is the first time
+      if (!state.previewElements.has(selector)) {
+        const originalStyles = {};
+        
+        // Save current inline styles for each property we're about to change
+        Object.keys(styles).forEach(property => {
+          // Convert camelCase to kebab-case for CSS properties
+          const cssProperty = property.replace(/([A-Z])/g, '-$1').toLowerCase();
+          originalStyles[property] = element.style.getPropertyValue(cssProperty);
+        });
+        
+        state.previewElements.set(selector, {
+          element,
+          originalStyles
+        });
+      }
+
+      // Apply new styles using inline style (highest specificity)
+      Object.entries(styles).forEach(([property, value]) => {
+        if (value !== null && value !== undefined) {
+          // Convert camelCase to kebab-case
+          const cssProperty = property.replace(/([A-Z])/g, '-$1').toLowerCase();
+          
+          // Apply using setProperty for better control
+          element.style.setProperty(cssProperty, value, 'important');
+          
+          if (state.config.enableDebug) {
+            console.log(`[Lovivo Visual Edit] Applied preview: ${cssProperty} = ${value}`);
+          }
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('[Lovivo Visual Edit] Error applying preview styles:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Revert preview styles for a specific element
+   * Restores the original inline styles
+   * 
+   * @param {string} selector - CSS selector of the element
+   * @returns {boolean} - Success status
+   */
+  function revertPreviewStyles(selector) {
+    try {
+      const previewData = state.previewElements.get(selector);
+      
+      if (!previewData) {
+        if (state.config.enableDebug) {
+          console.log('[Lovivo Visual Edit] No preview to revert for:', selector);
+        }
+        return false;
+      }
+
+      const { element, originalStyles } = previewData;
+
+      // Restore original inline styles
+      Object.entries(originalStyles).forEach(([property, value]) => {
+        const cssProperty = property.replace(/([A-Z])/g, '-$1').toLowerCase();
+        
+        if (value === '' || value === null) {
+          // Remove the property if it wasn't set originally
+          element.style.removeProperty(cssProperty);
+        } else {
+          // Restore original value
+          element.style.setProperty(cssProperty, value);
+        }
+      });
+
+      // Remove from tracking
+      state.previewElements.delete(selector);
+
+      if (state.config.enableDebug) {
+        console.log('[Lovivo Visual Edit] Reverted preview for:', selector);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[Lovivo Visual Edit] Error reverting preview styles:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Revert all active previews
+   * Useful when deactivating edit mode or switching elements
+   */
+  function revertAllPreviews() {
+    const selectors = Array.from(state.previewElements.keys());
+    
+    selectors.forEach(selector => {
+      revertPreviewStyles(selector);
+    });
+
+    if (state.config.enableDebug) {
+      console.log('[Lovivo Visual Edit] Reverted all previews');
+    }
+  }
+
+  /**
+   * Handle APPLY_PREVIEW message from parent
+   */
+  function handleApplyPreview(data) {
+    const { selector, styles } = data;
+
+    if (!selector || !styles || typeof styles !== 'object') {
+      sendMessage(MESSAGE_TYPES.ERROR, {
+        error: 'Invalid preview data: selector and styles required',
+        selector
+      });
+      return;
+    }
+
+    const success = applyPreviewStyles(selector, styles);
+
+    if (success) {
+      sendMessage(MESSAGE_TYPES.PREVIEW_APPLIED, {
+        selector,
+        appliedStyles: Object.keys(styles)
+      });
+    } else {
+      sendMessage(MESSAGE_TYPES.ERROR, {
+        error: 'Failed to apply preview styles',
+        selector
+      });
+    }
+  }
+
+  /**
+   * Handle REVERT_PREVIEW message from parent
+   */
+  function handleRevertPreview(data) {
+    const { selector } = data;
+
+    if (!selector) {
+      // Revert all if no specific selector
+      revertAllPreviews();
+      sendMessage(MESSAGE_TYPES.PREVIEW_REVERTED, {
+        selector: 'all'
+      });
+      return;
+    }
+
+    const success = revertPreviewStyles(selector);
+
+    if (success) {
+      sendMessage(MESSAGE_TYPES.PREVIEW_REVERTED, {
+        selector
+      });
+    } else {
+      sendMessage(MESSAGE_TYPES.ERROR, {
+        error: 'Failed to revert preview styles',
+        selector
+      });
+    }
+  }
+
   // ===== PHASE 5: PERFORMANCE & EVENT HANDLING =====
 
   /**
@@ -1213,6 +1400,9 @@
       state.rafId = null;
     }
 
+    // Revert all preview styles
+    revertAllPreviews();
+
     state.eventListenersAttached = false;
     
     console.log('🎨 Lovivo Visual Edit Mode DEACTIVATED');
@@ -1415,6 +1605,14 @@
 
         case MESSAGE_TYPES.REQUEST_INFO:
           handleRequestInfo(data);
+          break;
+
+        case MESSAGE_TYPES.APPLY_PREVIEW:
+          handleApplyPreview(data);
+          break;
+
+        case MESSAGE_TYPES.REVERT_PREVIEW:
+          handleRevertPreview(data);
           break;
 
         // Special configuration message
